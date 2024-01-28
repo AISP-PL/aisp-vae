@@ -99,6 +99,6 @@ trainer.fit(autoencoder,
 # -------------------
 # Step 5: Test
 # -------------------
-for i in range(10):
+for i in range(32):
     trainer.test(autoencoder, 
                 data.DataLoader(val))
