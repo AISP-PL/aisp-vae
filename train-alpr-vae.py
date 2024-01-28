@@ -4,6 +4,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 from pytorch_lightning.utilities.types import STEP_OUTPUT
+from pytorch_lightning.loggers import TensorBoardLogger
 import torch, torch.nn as nn, torch.utils.data as data, torchvision as tv, torch.nn.functional as F
 import pytorch_lightning as L
 
@@ -47,13 +48,13 @@ class LitAutoEncoder(L.LightningModule):
         x_array = x.reshape([28,28])
         original_raw = x_array.cpu().numpy() * 255
         original_raw = original_raw.astype(np.uint8).reshape([1,28,28])
-        original_image = Image.fromarray(original_raw)
+        # original_image = Image.fromarray(original_raw)
 
         # Image : Create from x_hat
         out_array = x_hat.reshape([28,28])
         out_raw = out_array.cpu().numpy() * 255
         out_raw = out_raw.astype(np.uint8).reshape([1,28,28])
-        out_image = Image.fromarray(out_raw)
+        # out_image = Image.fromarray(out_raw)
 
         self.logger.experiment.add_image("original", 
                                          original_raw, 
@@ -98,5 +99,6 @@ trainer.fit(autoencoder,
 # -------------------
 # Step 5: Test
 # -------------------
-trainer.test(autoencoder, 
-             data.DataLoader(val))
+for i in range(10):
+    trainer.test(autoencoder, 
+                data.DataLoader(val))
