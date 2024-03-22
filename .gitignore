@@ -163,3 +163,4 @@ env*.*/
 lightning_logs/
 MNIST/
 
+tb_logs/
