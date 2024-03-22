@@ -21,13 +21,27 @@ from pytorch_lightning.utilities.types import STEP_OUTPUT
 
 
 class LitAutoEncoder(L.LightningModule):
-    def __init__(self):
+    """Autoencoder model for MNIST dataset"""
+
+    def __init__(
+        self,
+        training_dataset_size: int,
+    ):
+        """Initialize the model"""
         super().__init__()
+        self.training_dataset_size = training_dataset_size
+        # Model : Encoder
         self.encoder = nn.Sequential(
             nn.Linear(28 * 28, 128), nn.ReLU(), nn.Linear(128, 32)
         )
+        # Model : Decoder (upscaling the image back to 56x56 pixels)
         self.decoder = nn.Sequential(
-            nn.Linear(32, 128), nn.ReLU(), nn.Linear(128, 28 * 28)
+            nn.Linear(32, 128),
+            nn.ReLU(),
+            nn.Linear(128, 28 * 28),
+            nn.ReLU(),
+            nn.Linear(28 * 28, 56 * 56),
+            nn.Sigmoid(),
         )
 
     def forward(self, x):
@@ -55,7 +69,12 @@ class LitAutoEncoder(L.LightningModule):
 
         # Forward pass : X -> Z -> Y
         z = self.encoder(x)
-        y = self.decoder(z)
+        y_upscaled = self.decoder(z)
+
+        # For loss, we have to downscale y to 28x28 from 56x56
+        y = y_upscaled.reshape([1, 1, 56, 56])
+        y = F.interpolate(y, size=(28, 28), mode="bilinear")
+        y = y.reshape([1, -1])
 
         # Loss : MSE Loss between each pixel
         # of the original image and the reconstructed image
@@ -78,33 +97,6 @@ class LitAutoEncoder(L.LightningModule):
         batch_idx : int
             Index of the batch
         """
-        # Batch : Unpack and reshape
-        x, _old_y = batch
-        x = x.view(x.size(0), -1)
-
-        # Forward pass : X -> Z -> Y
-        z = self.encoder(x)
-        y = self.decoder(z)
-
-        # Loss : MSE Loss between each pixel
-        # of the original image and the reconstructed image
-        loss = F.mse_loss(y, x)
-        self.log("Test/loss", loss)
-
-        # Image : original
-        x_array = x.reshape([28, 28])
-        original_raw = x_array.cpu().numpy() * 255
-        original_raw = original_raw.astype(np.uint8).reshape([1, 28, 28])
-        # original_image = Image.fromarray(original_raw)
-
-        # Image : Create from y
-        out_array = y.reshape([28, 28])
-        out_raw = out_array.cpu().numpy() * 255
-        out_raw = out_raw.astype(np.uint8).reshape([1, 28, 28])
-        # out_image = Image.fromarray(out_raw)
-
-        self.logger.experiment.add_image("Test/image", original_raw, self.current_epoch)
-        self.logger.experiment.add_image("Test/image_out", out_raw, self.current_epoch)
 
     def validation_step(self, batch, batch_idx):
         """Validation step"""
@@ -114,29 +106,39 @@ class LitAutoEncoder(L.LightningModule):
 
         # Forward pass : X -> Z -> Y
         z = self.encoder(x)
-        y = self.decoder(z)
+        y_upscaled = self.decoder(z)
+
+        # For loss, we have to downscale y to 28x28 from 56x56
+        y = y_upscaled.reshape([1, 1, 56, 56])
+        y = F.interpolate(y, size=(28, 28), mode="bilinear")
+        y = y.reshape([1, -1])
 
         # Loss : MSE Loss between each pixel
         # of the original image and the reconstructed image
         valid_loss = F.mse_loss(y, x)
         self.log("Valid/loss", valid_loss)
 
-        # Image : original
-        x_array = x.reshape([28, 28])
-        original_raw = x_array.cpu().numpy() * 255
-        original_raw = original_raw.astype(np.uint8).reshape([1, 28, 28])
-        # original_image = Image.fromarray(original_raw)
-
-        # Image : Create from y
-        out_array = y.reshape([28, 28])
-        out_raw = out_array.cpu().numpy() * 255
-        out_raw = out_raw.astype(np.uint8).reshape([1, 28, 28])
-        # out_image = Image.fromarray(out_raw)
+        # Images together : X and Y
+        image = torch.cat((x, y), dim=1) * 255
+        image_int = image.type(torch.uint8).reshape([1, 2 * 28, 28])
+        image_raw = image_int.cpu().numpy()
 
         self.logger.experiment.add_image(
-            "Valid/image", original_raw, self.current_epoch
+            "Valid/images",
+            image_raw,
+            self.current_epoch * self.training_dataset_size + batch_idx,
         )
-        self.logger.experiment.add_image("Valid/image_out", out_raw, self.current_epoch)
+
+        # Image upscaled : y_upscaled
+        image_upscaled = y_upscaled * 255
+        image_upscaled_int = image_upscaled.type(torch.uint8).reshape([1, 56, 56])
+        image_upscaled_raw = image_upscaled_int.cpu().numpy()
+
+        self.logger.experiment.add_image(
+            "Valid/images_upscaled",
+            image_upscaled_raw,
+            self.current_epoch * self.training_dataset_size + batch_idx,
+        )
 
     def configure_optimizers(self):
         """Configure optimizer for training"""
@@ -148,20 +150,20 @@ class LitAutoEncoder(L.LightningModule):
 # Step 2: Define data
 # -------------------
 dataset = tv.datasets.MNIST(".", download=True, transform=tv.transforms.ToTensor())
-train, val = data.random_split(dataset, [55000, 5000])
+train, val = data.random_split(dataset, [0.8, 0.2])
 
 # -------------------
 # Step 3: Model
 # -------------------
-autoencoder = LitAutoEncoder()
+autoencoder = LitAutoEncoder(training_dataset_size=len(train))
 
 # -------------------
 # Step 4: Train
 # -------------------
 # TensorBoardLogger : Create and add to your LightningModule
 tb_logger = L.loggers.TensorBoardLogger("tb_logs", name="AE-MNIST")
-trainer = L.Trainer(max_epochs=5, logger=tb_logger)
-trainer.fit(autoencoder, data.DataLoader(train), data.DataLoader(val))
+trainer = L.Trainer(max_epochs=10, logger=tb_logger)
+trainer.fit(autoencoder, data.DataLoader(train, num_workers=3), data.DataLoader(val))
 
 # -------------------
 # Step 5: Test
