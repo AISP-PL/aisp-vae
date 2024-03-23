@@ -11,6 +11,15 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true
+        },
+        {
+            "name": "MNIST:AE training",
+            "type": "python",
+            "request": "launch",
+            "program": "train-alpr-vae.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false
         }
     ]
 }
